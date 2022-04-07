@@ -3,8 +3,11 @@ import numpy as np
 class TrajOpt():
     def __init__(self, ndof):
         self.ndof = ndof
+        self.h = np.empty(0)
 
     def setup_task(self, h):
+        if np.array_equal(h, self.h):
+            return
         self.h = h
         self.N = len(h)
         self.T = np.sum(h)

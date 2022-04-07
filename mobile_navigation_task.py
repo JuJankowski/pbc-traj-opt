@@ -26,15 +26,15 @@ class Human():
         return x_pred
 
 class mobile_navigation_task():
-    def __init__(self):
+    def __init__(self, T_lookahead=None):
         self.ndof = 2
         self.x_obs = []
         self.x_dyn_obs = []
         self.r_obs = 0.5
         self.r_obs_sq = self.r_obs**2
         self.T = None
-        self.dt_planning = 0.05
-        self.dt_cost = 0.05
+        self.dt_planning = 0.04
+        self.dt_cost = 0.04
         self.alpha_control = 1e-1
         self.q_0 = None
         self.dq_0 = None
@@ -44,11 +44,15 @@ class mobile_navigation_task():
         self.fontsize_ = 24
         self.fig_height = 2
 
+        self.T_lookahead = T_lookahead
+
     def set_time(self, T):
         self.T = np.round(T,2)
         self.t_plan_array = np.linspace(0, self.T, int(self.T/self.dt_planning)+1)
         self.t_cost_array = np.linspace(0, self.T, int(self.T/self.dt_cost)+1)
         self.R = np.eye(len(self.t_cost_array)*self.ndof)
+        if self.T_lookahead is None:
+            self.T_lookahead = self.T
 
     def set_obstacle_list(self, x_obs):
         self.x_obs = x_obs
@@ -57,14 +61,20 @@ class mobile_navigation_task():
         self.x_dyn_obs = x_obs
 
     def get_dist_vec_(self, q_traj, s):
-        e = q_traj - s
+        T_lookahead = np.min([self.T_lookahead, self.T])
+        k_end = int(np.round(T_lookahead/self.dt_cost))-2
+        e = (q_traj - s)[:k_end]
         return np.sum(e * e, axis=1)
 
     def get_dist_vec(self, w):
         if len(self.t_cost_array) < 3:
             return self.r_obs_sq
+        T_lookahead = np.min([self.T_lookahead, self.T])
+        k_end = int(np.round(T_lookahead/self.dt_cost))-2
+        if k_end < 1:
+            return self.r_obs_sq
         q = (self.Phi[self.ndof:-self.ndof] @ w).reshape(len(self.t_cost_array)-2, self.ndof)
-        d = self.r_obs_sq * np.ones_like(self.t_cost_array[1:-1])
+        d = self.r_obs_sq * np.ones_like(self.t_cost_array[1:k_end+1])
         for s in self.x_obs:
             d = np.minimum(d, self.get_dist_vec_(q, s))
         for s in self.x_dyn_obs:
@@ -83,18 +93,23 @@ class mobile_navigation_task():
     def control_grad(self, w):
         return w @ self.Rw
 
-    def plot_environment(self, q):
+    def plot_environment(self, q, q_via=None):
         plt.figure(figsize=(8, 8), dpi=120, facecolor='w', edgecolor='k')
         plt.xlabel(r'$q_1$', fontsize=self.fontsize_)
         plt.ylabel(r'$q_2$', fontsize=self.fontsize_)
         if q is not None:
-            plt.plot(q[:,0], q[:,1], lw=self.lw_)
+            if len(q.shape) == 2:
+                plt.plot(q[:,0], q[:,1], lw=self.lw_)
+            else:
+                plt.plot(q[:,:,0].T, q[:,:,1].T, lw=1)
+        if q_via is not None:
+            plt.scatter(q_via[:,0], q_via[:,1])
         plt.scatter(self.q_0[0], self.q_0[1], s=100, color='b')
         plt.scatter(self.q_d[0], self.q_d[1], s=100, color='g')
 
         ax = plt.gca()
-        ax.set_xlim([-10,10])
-        ax.set_ylim([-10,10])
+        ax.set_xlim([-1,8])
+        ax.set_ylim([-1,8])
         obs_list = []
         for s in self.x_obs:
             obs_list.append(plt.Circle((s[0], s[1]), self.r_obs, color='r'))
@@ -129,7 +144,7 @@ class mobile_navigation_task():
         plt.tight_layout()
 
     def save_animation(self, q, filename="animation", fps=25):
-        fig, ax = plt.subplots(figsize=(8, 8), dpi=120, facecolor='w', edgecolor='k')
+        fig, ax = plt.subplots(figsize=(8, 8), dpi=80, facecolor='w', edgecolor='k')
 
         K = len(q)
         dt_ani = 1./fps
@@ -162,6 +177,6 @@ class mobile_navigation_task():
         ani = animation.FuncAnimation(
         fig, animate, interval=dt_ani*1e3, blit=True, frames=int(self.T*fps), repeat=False)
 
-        gif_name = r"/home/julius/Documents/python/pac/traj_opt/media/" + filename + ".gif" 
-        writergif = animation.PillowWriter(fps=30) 
-        ani.save(gif_name, writer=writergif)
+        video_name = r"/home/julius/Documents/python/pac/traj_opt/media/" + filename + ".mp4" 
+        writervideo = animation.FFMpegWriter(fps=fps)
+        ani.save(video_name, writer=writervideo)
